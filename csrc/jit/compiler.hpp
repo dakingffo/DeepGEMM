@@ -255,7 +255,7 @@ public:
 
         // Persist to precompiled directory if in compile-host mode
         if (get_env<int>("DG_PERSISTENT_COMPILE", 0))
-            persist_to_precompiled(code, key);
+            persist_to_precompiled(code, name, key);
 
         return runtime;
     }
@@ -309,12 +309,13 @@ private:
     // Copy the just-compiled CUBIN from the JIT L2 cache into the precompiled
     // directory, along with the current header hash.
     void persist_to_precompiled(const std::string& code,
+                                 const std::string& name,
                                  const PrecompiledKey& key) const {
         // Recompute the L2 cache path (same formula as build())
         const auto kernel_signature = fmt::format("{}$${}$${}$${}",
-            key.name, signature, flags, code);
+            name, signature, flags, code);
         const auto dir_path = cache_dir_path / "cache" /
-            fmt::format("kernel.{}.{}", key.name, get_hex_digest(kernel_signature));
+            fmt::format("kernel.{}.{}", name, get_hex_digest(kernel_signature));
 
         const auto src_cubin = dir_path / "kernel.cubin";
         if (not std::filesystem::exists(src_cubin))
