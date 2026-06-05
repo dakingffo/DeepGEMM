@@ -325,8 +325,9 @@ private:
 
         // Atomic write of CUBIN: write to tmp then rename
         make_dirs(dst_cubin.parent_path());
-        const auto tmp_cubin = make_tmp_dir() / (key.config_filename() + ".cubin");
-        const auto tmp_header = make_tmp_dir() / (key.config_filename() + ".header");
+        const auto tmp_base = get_uuid() + "_" + key.config_filename();
+        const auto tmp_cubin = make_tmp_dir() / (tmp_base + ".cubin");
+        const auto tmp_header = make_tmp_dir() / (tmp_base + ".header");
         std::filesystem::copy_file(src_cubin, tmp_cubin);
         put(tmp_header, include_parser->get_hash_value(code, true));
 
