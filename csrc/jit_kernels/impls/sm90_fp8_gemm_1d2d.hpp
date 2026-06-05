@@ -139,7 +139,8 @@ static void sm90_fp8_gemm_1d2d(const torch::Tensor& a, const torch::Tensor& sfa,
         .tensor_map_sfa = tensor_map_sfa,
     };
     const auto code = SM90FP8Gemm1D2DRuntime::generate(args);
-    const auto runtime = compiler->build("sm90_fp8_gemm_1d2d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_gemm");
+    const auto runtime = compiler->build("sm90_fp8_gemm_1d2d", code, key);
     SM90FP8Gemm1D2DRuntime::launch(runtime, args);
 }
 
@@ -216,7 +217,8 @@ static void sm90_m_grouped_fp8_gemm_contiguous_1d2d(const torch::Tensor& a, cons
         .tensor_map_sfa = tensor_map_sfa,
     };
     const auto code = SM90FP8Gemm1D2DRuntime::generate(args);
-    const auto runtime = compiler->build("sm90_m_grouped_fp8_gemm_contiguous_1d2d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_gemm");
+    const auto runtime = compiler->build("sm90_m_grouped_fp8_gemm_contiguous_1d2d", code, key);
     SM90FP8Gemm1D2DRuntime::launch(runtime, args);
 }
 
@@ -283,7 +285,8 @@ static void sm90_m_grouped_fp8_gemm_masked_1d2d(const torch::Tensor& a, const to
         .tensor_map_sfa = tensor_map_sfa,
     };
     const auto code = SM90FP8Gemm1D2DRuntime::generate(args);
-    const auto runtime = compiler->build("sm90_fp8_m_grouped_gemm_masked_1d2d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_gemm");
+    const auto runtime = compiler->build("sm90_fp8_m_grouped_gemm_masked_1d2d", code, key);
     SM90FP8Gemm1D2DRuntime::launch(runtime, args);
 }
 
@@ -354,7 +357,8 @@ static void sm90_fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
         .tensor_map_sfa = tensor_map_sfa,
     };
     const auto code = SM90FP8Gemm1D2DRuntime::generate(args);
-    const auto runtime = compiler->build("sm90_fp8_gemm_1d2d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_gemm");
+    const auto runtime = compiler->build("sm90_fp8_gemm_1d2d", code, key);
     SM90FP8Gemm1D2DRuntime::launch(runtime, args);
 }
 

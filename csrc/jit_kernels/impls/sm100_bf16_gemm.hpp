@@ -123,7 +123,8 @@ static void sm100_bf16_gemm(const torch::Tensor& a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100BF16GemmRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_bf16_gemm", code);
+    const auto key = PrecompiledKey::from(desc, config, "bf16_gemm");
+    const auto runtime = compiler->build("sm100_bf16_gemm", code, key);
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
@@ -190,7 +191,8 @@ static void sm100_m_grouped_bf16_gemm_contiguous(const torch::Tensor& a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100BF16GemmRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_bf16_m_grouped_gemm_contiguous", code);
+    const auto key = PrecompiledKey::from(desc, config, "bf16_gemm");
+    const auto runtime = compiler->build("sm100_bf16_m_grouped_gemm_contiguous", code, key);
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
@@ -245,7 +247,8 @@ static void sm100_m_grouped_bf16_gemm_masked(const torch::Tensor& a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100BF16GemmRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_bf16_m_grouped_gemm_masked", code);
+    const auto key = PrecompiledKey::from(desc, config, "bf16_gemm");
+    const auto runtime = compiler->build("sm100_bf16_m_grouped_gemm_masked", code, key);
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
@@ -312,7 +315,8 @@ static void sm100_bf16_k_grouped_gemm(const torch::Tensor& a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100BF16GemmRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_bf16_k_grouped_gemm", code);
+    const auto key = PrecompiledKey::from(desc, config, "bf16_gemm");
+    const auto runtime = compiler->build("sm100_bf16_k_grouped_gemm", code, key);
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
@@ -360,7 +364,8 @@ static void sm100_bf16_bhr_hdr_bhd(const torch::Tensor& tensor_a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100BF16GemmRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_bf16_bhr_hdr_bhd", code);
+    const auto key = PrecompiledKey::from(desc, config, "bf16_gemm");
+    const auto runtime = compiler->build("sm100_bf16_bhr_hdr_bhd", code, key);
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
@@ -408,7 +413,8 @@ static void sm100_bf16_bhd_hdr_bhr(const torch::Tensor& tensor_a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100BF16GemmRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_bf16_bhd_hdr_bhr", code);
+    const auto key = PrecompiledKey::from(desc, config, "bf16_gemm");
+    const auto runtime = compiler->build("sm100_bf16_bhd_hdr_bhr", code, key);
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 

@@ -138,7 +138,8 @@ static void sm90_fp8_gemm_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
         .tensor_map_cd = tensor_map_cd,
     };
     const auto code = SM90FP8Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm90_fp8_gemm_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_gemm");
+    const auto runtime = compiler->build("sm90_fp8_gemm_1d1d", code, key);
 
     SM90FP8Gemm1D1DRuntime::launch(runtime, args);
 }
@@ -221,7 +222,8 @@ static void sm90_k_grouped_fp8_gemm_1d1d(const torch::Tensor& a, const torch::Te
         .tensor_map_cd = tensor_map_cd,
     };
     const auto code = SM90FP8Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm90_fp8_gemm_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_gemm");
+    const auto runtime = compiler->build("sm90_fp8_gemm_1d1d", code, key);
 
     SM90FP8Gemm1D1DRuntime::launch(runtime, args);
 }

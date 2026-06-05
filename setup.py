@@ -116,10 +116,13 @@ class CustomBuildPy(build_py):
         # First, prepare the include directories
         self.prepare_includes()
 
-        # Second, make clusters' cache setting default into `envs.py`
+        # Second, merge precompiled kernels (from DG_PERSISTENT_OUTPUT if set)
+        self.merge_precompiled()
+
+        # Third, make clusters' cache setting default into `envs.py`
         self.generate_default_envs()
 
-        # Third, generate and copy .pyi file to build root directory
+        # Fourth, generate and copy .pyi file to build root directory
         self.generate_pyi_file()
 
         # Finally, run the regular build
@@ -164,6 +167,36 @@ class CustomBuildPy(build_py):
             # Copy the directory
             shutil.copytree(src_dir, dst_dir)
 
+    def merge_precompiled(self):
+        """Merge precompiled kernels into the build directory.
+
+        If DG_PERSISTENT_OUTPUT is set and points to an external directory,
+        copy its contents into the build's precompiled/ tree.  The source
+        tree's deep_gemm/precompiled/ (containing .gitkeep) is always
+        included first by package_data; this method adds the external
+        artifacts on top.
+        """
+        external_root = os.environ.get('DG_PERSISTENT_OUTPUT', '')
+        if not external_root or not os.path.isdir(external_root):
+            return  # nothing to merge
+
+        build_precompiled_dir = os.path.join(
+            self.build_lib, 'deep_gemm', 'precompiled')
+        os.makedirs(build_precompiled_dir, exist_ok=True)
+
+        print(f'Merging precompiled kernels from {external_root} '
+              f'into {build_precompiled_dir}')
+
+        # Walk the external tree and copy every .cubin / .header file
+        # while preserving the relative directory structure
+        for root, dirs, files in os.walk(external_root):
+            for fname in files:
+                src_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(src_path, external_root)
+                dst_path = os.path.join(build_precompiled_dir, rel_path)
+                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                shutil.copy2(src_path, dst_path)
+
 
 class CachedWheelsCommand(_bdist_wheel):
     def run(self):
@@ -203,6 +236,7 @@ if __name__ == '__main__':
                 'include/deep_gemm/**/*',
                 'include/cute/**/*',
                 'include/cutlass/**/*',
+                'precompiled/**/*',          # precompiled CUBINs + headers
             ]
         },
         ext_modules=get_ext_modules(),

@@ -9,6 +9,7 @@
 #include <regex>
 #include <string>
 
+#include "../jit_kernels/heuristics/config.hpp"
 #include "../utils/exception.hpp"
 #include "../utils/format.hpp"
 #include "../utils/hash.hpp"
@@ -20,12 +21,71 @@
 
 namespace deep_gemm {
 
+// Precompiled kernel key — used for filesystem-based lookup of AOT-compiled CUBINs.
+// Encodes the kernel identity, shape dimensions baked at compile time, and the
+// specific config (tiling, pipeline) chosen by the heuristic.
+struct PrecompiledKey {
+    int arch_major;
+    std::string name;          // e.g. "bf16_gemm"
+    std::string compiled_dims; // e.g. "nk"
+    int m, n, k;               // full shape (0 = not compiled, runtime variable)
+    int block_m, block_n, block_k;
+    int cluster_size;
+    int num_stages;
+
+    static PrecompiledKey from(const GemmDesc& desc, const GemmConfig& config,
+                                const std::string& name) {
+        return {
+            device_runtime->get_arch_major(),
+            name,
+            desc.compiled_dims,
+            desc.m, desc.n, desc.k,
+            config.layout.block_m, config.layout.block_n, config.layout.block_k,
+            config.layout.get_cluster_size(),
+            config.pipeline_config.num_stages
+        };
+    }
+
+    // Subdirectory from compiled dims: e.g. compiled_dims="nk" → "n=4096,k=14336"
+    std::string dim_path() const {
+        std::string result;
+        for (const char c: compiled_dims) {
+            if (!result.empty()) result += ",";
+            int val = 0;
+            switch (c) {
+                case 'm': val = m; break;
+                case 'n': val = n; break;
+                case 'k': val = k; break;
+            }
+            result += fmt::format("{}={}", c, val);
+        }
+        return result.empty() ? "all_runtime" : result;
+    }
+
+    // Config filename: e.g. "B128_N256_K64_C2_S7"
+    std::string config_filename() const {
+        return fmt::format("B{}_N{}_K{}_C{}_S{}",
+            block_m, block_n, block_k, cluster_size, num_stages);
+    }
+
+    std::filesystem::path cubin_path(const std::filesystem::path& root) const {
+        return root / fmt::format("sm{}", arch_major) / name / dim_path()
+            / (config_filename() + ".cubin");
+    }
+
+    std::filesystem::path header_path(const std::filesystem::path& root) const {
+        return root / fmt::format("sm{}", arch_major) / name / dim_path()
+            / (config_filename() + ".header");
+    }
+};
+
 class Compiler {
 public:
     static std::filesystem::path library_root_path;
     static std::filesystem::path library_include_path;
     static std::filesystem::path cuda_home;
     static std::filesystem::path cuobjdump_path;
+    static std::filesystem::path precompiled_root;
 
     static void prepare_init(const std::string& library_root_path,
                              const std::string& cuda_home_path_by_python) {
@@ -33,6 +93,14 @@ public:
         Compiler::library_include_path = Compiler::library_root_path / "include";
         Compiler::cuda_home = cuda_home_path_by_python;
         Compiler::cuobjdump_path = Compiler::cuda_home / "bin" / "cuobjdump";
+
+        // Precompiled root: env var or default to package-relative path
+        if (const auto env_path = get_env<std::string>("DG_PERSISTENT_OUTPUT");
+            not env_path.empty()) {
+            precompiled_root = env_path;
+        } else {
+            precompiled_root = Compiler::library_root_path / "precompiled";
+        }
     }
 
     std::string signature, flags;
@@ -148,6 +216,132 @@ public:
         return runtime;
     }
 
+    // ─── Precompiled (AOT) kernel support ────────────────────────────
+    //
+    // Overload of build() that intercepts the JIT path with a precompiled
+    // CUBIN lookup.  The PrecompiledKey carries the shape/config metadata
+    // that the original JIT hash would have embedded in the generated code
+    // string, but in a structured form that can be matched across machines.
+    //
+    // Flow:
+    //   1. L1 in-memory cache (same as original)
+    //   2. Precompiled filesystem cache – lookup by (arch, name, dims, config)
+    //      → hit  + valid header hash  → copy into L2, load, return
+    //      → miss / stale              → fall through
+    //   3. Original JIT path (L2 disk cache + NVCC/NVRTC compilation)
+    //   4. If DG_PERSISTENT_COMPILE=1  → copy compiled CUBIN + header hash
+    //      into the precompiled directory for packaging
+    //
+    // The original build(name, code) is kept for kernels that do not carry
+    // GemmDesc/GemmConfig metadata (attention, layout, etc.).
+    // ─────────────────────────────────────────────────────────────────
+
+    std::shared_ptr<KernelRuntime> build(const std::string& name, const std::string& code,
+                                          const PrecompiledKey& key) const {
+        const auto kernel_signature = fmt::format("{}$${}$${}$${}", name, signature, flags, code);
+        const auto dir_path = cache_dir_path / "cache" /
+            fmt::format("kernel.{}.{}", name, get_hex_digest(kernel_signature));
+
+        // L1 memory cache
+        if (const auto runtime = kernel_runtime_cache->get(dir_path); runtime != nullptr)
+            return runtime;
+
+        // Try precompiled CUBIN
+        if (const auto runtime = try_load_precompiled(code, key, dir_path); runtime != nullptr)
+            return runtime;
+
+        // Fall through to original JIT compilation
+        auto runtime = build(name, code);
+
+        // Persist to precompiled directory if in compile-host mode
+        if (get_env<int>("DG_PERSISTENT_COMPILE", 0))
+            persist_to_precompiled(code, key);
+
+        return runtime;
+    }
+
+private:
+    // Look up a precompiled CUBIN, verify the header hash, and if valid
+    // ingest it into the JIT L2 cache so subsequent calls hit L1/L2 directly.
+    // Returns nullptr on miss or stale hash.
+    std::shared_ptr<KernelRuntime> try_load_precompiled(
+            const std::string& code, const PrecompiledKey& key,
+            const std::filesystem::path& dir_path) const {
+        const auto pc_cubin = key.cubin_path(precompiled_root);
+        const auto pc_header = key.header_path(precompiled_root);
+
+        if (not std::filesystem::exists(pc_cubin))
+            return nullptr;
+
+        // Verify header hash if present
+        if (std::filesystem::exists(pc_header)) {
+            std::ifstream hf(pc_header);
+            std::string stored_hash;
+            std::getline(hf, stored_hash);
+            if (stored_hash != include_parser->get_hash_value(code, true)) {
+                if (get_env<int>("DG_JIT_DEBUG"))
+                    printf("Precompiled CUBIN header hash mismatch: %s (stored) vs %s (current), "
+                           "falling back to JIT\n", stored_hash.c_str(),
+                           include_parser->get_hash_value(code, true).c_str());
+                return nullptr;
+            }
+        }
+
+        if (get_env<int>("DG_JIT_DEBUG"))
+            printf("Loading precompiled CUBIN: %s\n", pc_cubin.c_str());
+
+        // Ingest into L2 cache: copy CUBIN + write code, then load
+        const auto tmp_dir_path = make_tmp_dir() / get_uuid();
+        make_dirs(tmp_dir_path);
+        std::filesystem::copy_file(pc_cubin, tmp_dir_path / "kernel.cubin");
+        put(tmp_dir_path / "kernel.cu", code);
+        fsync_dir(tmp_dir_path);
+
+        make_dirs(dir_path.parent_path());
+        std::error_code error_code;
+        std::filesystem::rename(tmp_dir_path, dir_path, error_code);
+        if (error_code)
+            safe_remove_all(tmp_dir_path);
+
+        return kernel_runtime_cache->get(dir_path);
+    }
+
+    // Copy the just-compiled CUBIN from the JIT L2 cache into the precompiled
+    // directory, along with the current header hash.
+    void persist_to_precompiled(const std::string& code,
+                                 const PrecompiledKey& key) const {
+        // Recompute the L2 cache path (same formula as build())
+        const auto kernel_signature = fmt::format("{}$${}$${}$${}",
+            key.name, signature, flags, code);
+        const auto dir_path = cache_dir_path / "cache" /
+            fmt::format("kernel.{}.{}", key.name, get_hex_digest(kernel_signature));
+
+        const auto src_cubin = dir_path / "kernel.cubin";
+        if (not std::filesystem::exists(src_cubin))
+            return;  // compilation was a no-op (e.g. another rank built it)
+
+        const auto dst_cubin = key.cubin_path(precompiled_root);
+        const auto dst_header = key.header_path(precompiled_root);
+
+        // Atomic write of CUBIN: write to tmp then rename
+        make_dirs(dst_cubin.parent_path());
+        const auto tmp_cubin = make_tmp_dir() / (key.config_filename() + ".cubin");
+        const auto tmp_header = make_tmp_dir() / (key.config_filename() + ".header");
+        std::filesystem::copy_file(src_cubin, tmp_cubin);
+        put(tmp_header, include_parser->get_hash_value(code, true));
+
+        std::error_code ec;
+        std::filesystem::rename(tmp_cubin, dst_cubin, ec);
+        if (ec) safe_remove_all(tmp_cubin);
+        ec.clear();
+        std::filesystem::rename(tmp_header, dst_header, ec);
+        if (ec) safe_remove_all(tmp_header);
+
+        if (get_env<int>("DG_JIT_DEBUG"))
+            printf("Persisted precompiled CUBIN: %s\n", dst_cubin.c_str());
+    }
+
+public:
     static void disassemble(const std::filesystem::path &cubin_path, const std::filesystem::path &sass_path) {
         // Disassemble the CUBIN file to SASS
         const auto command = fmt::format("{} --dump-sass {} > {}", cuobjdump_path.c_str(), cubin_path.c_str(), sass_path.c_str());
@@ -167,6 +361,7 @@ DG_DECLARE_STATIC_VAR_IN_CLASS(Compiler, library_root_path);
 DG_DECLARE_STATIC_VAR_IN_CLASS(Compiler, library_include_path);
 DG_DECLARE_STATIC_VAR_IN_CLASS(Compiler, cuda_home);
 DG_DECLARE_STATIC_VAR_IN_CLASS(Compiler, cuobjdump_path);
+DG_DECLARE_STATIC_VAR_IN_CLASS(Compiler, precompiled_root);
 
 class NVCCCompiler final: public Compiler {
     std::filesystem::path nvcc_path;

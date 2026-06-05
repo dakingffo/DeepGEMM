@@ -151,7 +151,8 @@ static void sm100_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor&
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100FP8FP4Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_fp8_fp4_gemm_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_fp4_gemm");
+    const auto runtime = compiler->build("sm100_fp8_fp4_gemm_1d1d", code, key);
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
@@ -230,7 +231,8 @@ static void sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100FP8FP4Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_fp4_gemm");
+    const auto runtime = compiler->build("sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d", code, key);
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
@@ -297,7 +299,8 @@ static void sm100_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, con
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100FP8FP4Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_m_grouped_fp8_fp4_gemm_masked_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_fp4_gemm");
+    const auto runtime = compiler->build("sm100_m_grouped_fp8_fp4_gemm_masked_1d1d", code, key);
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
@@ -378,7 +381,8 @@ static void sm100_k_grouped_fp8_gemm_1d1d(const torch::Tensor& a, const torch::T
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100FP8FP4Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_k_grouped_fp8_gemm_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_fp4_gemm");
+    const auto runtime = compiler->build("sm100_k_grouped_fp8_gemm_1d1d", code, key);
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
@@ -452,7 +456,8 @@ static void sm100_fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
         .tensor_map_cd = tensor_map_cd
     };
     const auto code = SM100FP8FP4Gemm1D1DRuntime::generate(args);
-    const auto runtime = compiler->build("sm100_fp8_gemm_1d1d", code);
+    const auto key = PrecompiledKey::from(desc, config, "fp8_fp4_gemm");
+    const auto runtime = compiler->build("sm100_fp8_gemm_1d1d", code, key);
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
