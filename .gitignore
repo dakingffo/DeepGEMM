@@ -28,3 +28,4 @@ deep_gemm/precompiled/**/*.cubin
 deep_gemm/precompiled/**/*.header
 PRECOMPILED_KERNEL_WHEEL.en.md
 PRECOMPILED_KERNEL_WHEEL.zh.md
+CMakePresets.json

@@ -324,20 +324,32 @@ private:
         const auto dst_cubin = key.cubin_path(precompiled_root);
         const auto dst_header = key.header_path(precompiled_root);
 
-        // Atomic write of CUBIN: write to tmp then rename
+        // Atomic write of CUBIN + header.
+        // IMPORTANT: write tmp to the SAME filesystem as the destination,
+        // then rename.  POSIX rename is only atomic within a single
+        // filesystem; across filesystems (e.g. overlayfs → NFS) it fails
+        // with EXDEV.  The UUID prefix prevents concurrent writers from
+        // overwriting each other's tmp files.
         make_dirs(dst_cubin.parent_path());
+        const auto tmp_dir = dst_cubin.parent_path() / ".tmp";
+        make_dirs(tmp_dir);
         const auto tmp_base = get_uuid() + "_" + key.config_filename();
-        const auto tmp_cubin = make_tmp_dir() / (tmp_base + ".cubin");
-        const auto tmp_header = make_tmp_dir() / (tmp_base + ".header");
+        const auto tmp_cubin = tmp_dir / (tmp_base + ".cubin");
+        const auto tmp_header = tmp_dir / (tmp_base + ".header");
         std::filesystem::copy_file(src_cubin, tmp_cubin);
         put(tmp_header, include_parser->get_hash_value(code, true));
 
         std::error_code ec;
         std::filesystem::rename(tmp_cubin, dst_cubin, ec);
-        if (ec) safe_remove_all(tmp_cubin);
-        ec.clear();
+        // If rename failed, another writer already placed this CUBIN
+        // (or some other error) — keep the existing file.
         std::filesystem::rename(tmp_header, dst_header, ec);
-        if (ec) safe_remove_all(tmp_header);
+
+        // Always clean up tmp files
+        if (std::filesystem::exists(tmp_cubin))
+            std::filesystem::remove(tmp_cubin);
+        if (std::filesystem::exists(tmp_header))
+            std::filesystem::remove(tmp_header);
 
         if (get_env<int>("DG_JIT_DEBUG"))
             printf("Persisted precompiled CUBIN: %s\n", dst_cubin.c_str());
